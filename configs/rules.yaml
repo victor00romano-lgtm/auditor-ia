@@ -1,0 +1,25 @@
+rules:
+  - name: deal_without_owner
+    description: Negócio sem responsável definido
+    entity: deal
+    field: owner_id
+    operator: is_empty
+    severity: HIGH
+  - name: stale_deal
+    description: Negócio sem atualização há mais de 30 dias
+    entity: deal
+    field: updated_at
+    operator: older_than_days
+    value: "30"
+    severity: MEDIUM
+  - name: opportunity_without_value
+    description: Oportunidade aberta sem valor informado
+    entity: deal
+    severity: HIGH
+    conditions:
+    - field: closed
+      operator: equals
+      value: "N"
+    - field: amount
+      operator: less_than
+      value: "0.01"

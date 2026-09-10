@@ -1,0 +1,18 @@
+groups:
+  - name: auditor
+    rules:
+      - alert: AuditorPostgresDown
+        expr: auditor_dependency_up{dependency="postgres"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "PostgreSQL do Auditor indisponível" }
+      - alert: AuditorHighErrorRate
+        expr: sum(rate(auditor_errors_total[5m])) > 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Taxa de erros elevada no Auditor" }
+      - alert: AuditorAuditLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(auditor_audit_duration_seconds_bucket[10m]))) > 300
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Auditorias demorando mais de cinco minutos" }

@@ -1,0 +1,30 @@
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.dump
+*.sql.gz
+reports/
+*.pdf
+tmp/
+*.exe
+dist/
+coverage.out
+.gocache/
+
+# Backups e exportacao local do banco
+/backups/
+*.backup
+/auditor_ia.sql
+
+# Logs e cache adicional do Go
+*.log
+/.gocache-codex/
+
+# Dados locais de testes manuais com o CRM
+/teste-10-negocios.json
+/audit-request.json
+/audit-request-8260.json

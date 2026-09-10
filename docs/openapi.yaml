@@ -1,0 +1,348 @@
+openapi: 3.0.3
+info:
+  title: Auditor IA API
+  version: 1.0.0
+  description: API local para auditorias persistidas de negócios do Bitrix24.
+servers:
+  - url: http://localhost:8080
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: {type: integer, minimum: 1, default: 1}
+    PageSize:
+      name: page_size
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+    OnlyWithoutValue:
+      name: only_without_value
+      in: query
+      description: Considera sem valor negócios com amount nulo, zero ou negativo.
+      schema: {type: boolean, default: false}
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string, example: AUDIT_NOT_FOUND}
+            message: {type: string, example: Auditoria não encontrada}
+    Pagination:
+      type: object
+      required: [page, page_size, total, total_pages]
+      properties:
+        page: {type: integer, example: 1}
+        page_size: {type: integer, example: 20}
+        total: {type: integer, example: 1}
+        total_pages: {type: integer, example: 1}
+    Audit:
+      type: object
+      required: [assessment_id, bitrix_deal_id, deal_title, status, score, final_result, result_source, summary, findings_count, started_at, created_at]
+      properties:
+        assessment_id: {type: integer, format: int64, example: 42}
+        bitrix_deal_id: {type: integer, format: int64, example: 8620}
+        deal_title: {type: string, example: Lead 8620}
+        status: {type: string, enum: [PENDING, PROCESSING, COMPLETED, FAILED]}
+        score: {type: number, nullable: true, minimum: 0, maximum: 100, example: 80}
+        final_result: {type: string, example: venda}
+        result_source: {type: string, example: estágio ganho no Bitrix}
+        summary: {type: string}
+        findings_count: {type: integer, example: 2}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time}
+        trace_id: {type: string, pattern: '^[0-9a-f]{32}$', nullable: true}
+        conversation_status: {type: string, enum: [NO_CONVERSATION, EMPTY_CONVERSATION, ACCESS_DENIED, AVAILABLE]}
+        conversation_message: {type: string, description: Motivo seguro quando a análise conversacional está indisponível.}
+    AuditEnvelope:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/Audit'}
+    AuditList:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/Audit'}
+        pagination: {$ref: '#/components/schemas/Pagination'}
+    Finding:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        assessment_id: {type: integer, format: int64}
+        bitrix_deal_id: {type: integer, format: int64}
+        rule: {type: string, example: opportunity_without_value}
+        description: {type: string}
+        entity_type: {type: string, example: deal}
+        entity_id: {type: string, example: '8620'}
+        severity: {type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL]}
+        created_at: {type: string, format: date-time}
+    FindingList:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/Finding'}
+        pagination: {$ref: '#/components/schemas/Pagination'}
+    Analysis:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        assessment_id: {type: integer, format: int64}
+        bitrix_deal_id: {type: integer, format: int64}
+        status: {type: string}
+        probable_result: {type: string}
+        final_result: {type: string}
+        result_source: {type: string}
+        main_reason: {type: string}
+        customer_objections: {type: string}
+        service_quality: {type: string}
+        recommended_action: {type: string}
+        confidence: {type: string}
+        possible_receipt: {type: boolean}
+        message_count: {type: integer}
+        collected_message_count: {type: integer, description: Mensagens válidas coletadas do Bitrix.}
+        persisted_message_count: {type: integer, description: Mensagens confirmadas pelo UPSERT da execução.}
+        analyzed_message_count: {type: integer, maximum: 50, description: Mensagens encaminhadas ao analisador.}
+        model: {type: string}
+        prompt_version: {type: string}
+        created_at: {type: string, format: date-time}
+        raw_response: {type: string, description: Presente apenas na rota /raw.}
+        analysis_available: {type: boolean}
+        analysis_status: {type: string, description: Mensagem segura sobre indisponibilidade.}
+        conversation_status: {type: string, enum: [NO_CONVERSATION, EMPTY_CONVERSATION, ACCESS_DENIED, AVAILABLE]}
+    AnalysisEnvelope:
+      type: object
+      properties:
+        data: {$ref: '#/components/schemas/Analysis'}
+  responses:
+    BadRequest:
+      description: Requisição inválida
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Unauthorized:
+      description: API key inválida ou ausente
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    NotFound:
+      description: Recurso não encontrado
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Internal:
+      description: Erro interno
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    External:
+      description: Falha no Bitrix ou Ollama
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Unavailable:
+      description: Serviço temporariamente indisponível
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+security:
+  - ApiKeyAuth: []
+paths:
+  /api/v1/audit-batches:
+    post:
+      summary: Cria auditoria em lote persistente
+      security: [{ApiKeyAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bitrix_deal_ids]
+              properties:
+                bitrix_deal_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 10000
+                  uniqueItems: true
+                  items: {type: integer, format: int64, minimum: 1}
+      responses:
+        '202': {description: Lote persistido e aguardando workers}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/audit-batches/{batch_id}:
+    get:
+      summary: Consulta progresso persistente do lote
+      security: [{ApiKeyAuth: []}]
+      parameters:
+        - {name: batch_id, in: path, required: true, schema: {type: integer, format: int64, minimum: 1}}
+      responses:
+        '200': {description: Contagens de itens pendentes, processando, concluídos e falhos}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/audit-batches/{batch_id}/cancel:
+    post:
+      summary: Cancela itens ainda não iniciados
+      security: [{ApiKeyAuth: []}]
+      parameters:
+        - {name: batch_id, in: path, required: true, schema: {type: integer, format: int64, minimum: 1}}
+      responses:
+        '200': {description: Lote cancelado; item já em execução encerra cooperativamente quando possível}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/dashboard/executive:
+    get:
+      summary: Visão executiva empresarial
+      security: [{ApiKeyAuth: []}]
+      parameters:
+        - {name: period, in: query, schema: {type: string, enum: [all, today, yesterday, last_7_days, last_30_days, current_month, previous_month]}}
+        - {$ref: '#/components/parameters/OnlyWithoutValue'}
+      responses:
+        '200': {description: Métricas empresariais calculadas sobre a avaliação atual de cada negócio}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/dashboard/priorities:
+    get:
+      summary: Oportunidades prioritárias
+      security: [{ApiKeyAuth: []}]
+      responses: {'200': {description: Lista sem raw_response}}
+  /api/v1/dashboard/divergences:
+    get:
+      summary: Divergências CRM × IA
+      security: [{ApiKeyAuth: []}]
+      responses: {'200': {description: Divergências tipadas}}
+  /api/v1/dashboard/crm-quality:
+    get:
+      summary: Qualidade do CRM
+      security: [{ApiKeyAuth: []}]
+      responses: {'200': {description: Indicadores e cobertura}}
+  /api/v1/dashboard/funnel:
+    get: {summary: Funil comercial, security: [{ApiKeyAuth: []}], responses: {'200': {description: Funil persistido}}}
+  /api/v1/dashboard/conversations:
+    get: {summary: Qualidade das conversas, security: [{ApiKeyAuth: []}], responses: {'200': {description: Cobertura conversacional}}}
+  /api/v1/dashboard/objections:
+    get: {summary: Objeções comerciais, security: [{ApiKeyAuth: []}], responses: {'200': {description: Objeções normalizadas}}}
+  /api/v1/dashboard/agents:
+    get: {summary: Desempenho agregado da equipe, security: [{ApiKeyAuth: []}], responses: {'200': {description: Indicadores não punitivos}}}
+  /api/v1/dashboard/trends:
+    get: {summary: Tendências mensais, security: [{ApiKeyAuth: []}], responses: {'200': {description: Séries mensais}}}
+  /api/v1/dashboard/ai-quality:
+    get: {summary: Qualidade operacional da IA, security: [{ApiKeyAuth: []}], responses: {'200': {description: Sem raw_response}}}
+  /api/v1/dashboard/crm-statistics:
+    get:
+      summary: Estatísticas globais do CRM persistidas pelo crmstatssync
+      security: [{ApiKeyAuth: []}]
+      responses:
+        '200': {description: Total global, ganhos e perdidos no total e por mês de criação, responsáveis, últimos 12 meses, canal 3264 e cobertura da sincronização}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /health:
+    get:
+      summary: Verifica se o processo HTTP está ativo
+      security: []
+      responses:
+        '200':
+          description: Serviço ativo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: {status: {type: string, example: ok}}
+  /ready:
+    get:
+      summary: Verifica prontidão e dependências
+      security: []
+      responses:
+        '200': {description: Serviço pronto ou degradado}
+        '503': {description: PostgreSQL indisponível}
+  /api/v1/audits:
+    post:
+      summary: Executa uma auditoria síncrona
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bitrix_deal_id]
+              properties: {bitrix_deal_id: {type: integer, format: int64, minimum: 1, example: 8620}}
+      responses:
+        '201': {description: Auditoria concluída, content: {application/json: {schema: {$ref: '#/components/schemas/AuditEnvelope'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/Internal'}
+        '502': {$ref: '#/components/responses/External'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    get:
+      summary: Lista o histórico de avaliações
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/PageSize'}
+        - {name: bitrix_deal_id, in: query, schema: {type: integer, format: int64}}
+        - {name: status, in: query, schema: {type: string, enum: [PENDING, PROCESSING, COMPLETED, FAILED]}}
+        - {name: final_result, in: query, schema: {type: string}}
+        - {name: date_from, in: query, schema: {type: string, format: date}}
+        - {name: date_to, in: query, schema: {type: string, format: date}}
+      responses:
+        '200': {description: Histórico paginado, content: {application/json: {schema: {$ref: '#/components/schemas/AuditList'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /api/v1/audits/{assessment_id}:
+    get:
+      summary: Consulta uma avaliação persistida
+      parameters:
+        - {name: assessment_id, in: path, required: true, schema: {type: integer, format: int64, minimum: 1}}
+      responses:
+        '200': {description: Avaliação, content: {application/json: {schema: {$ref: '#/components/schemas/AuditEnvelope'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /api/v1/audits/{assessment_id}/report.pdf:
+    get:
+      summary: Baixa o relatório executivo em PDF
+      parameters:
+        - {name: assessment_id, in: path, required: true, schema: {type: integer, format: int64, minimum: 1}}
+      responses:
+        '200': {description: Relatório PDF, content: {application/pdf: {schema: {type: string, format: binary}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/Internal'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/v1/findings:
+    get:
+      summary: Lista achados persistidos
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/PageSize'}
+        - {name: assessment_id, in: query, schema: {type: integer, format: int64}}
+        - {name: bitrix_deal_id, in: query, schema: {type: integer, format: int64}}
+        - {name: severity, in: query, schema: {type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL]}}
+        - {name: rule, in: query, schema: {type: string}}
+      responses:
+        '200': {description: Achados paginados, content: {application/json: {schema: {$ref: '#/components/schemas/FindingList'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /api/v1/deals/{bitrix_deal_id}/analysis:
+    get:
+      summary: Consulta a análise persistida mais recente ou uma avaliação específica
+      parameters:
+        - {name: bitrix_deal_id, in: path, required: true, schema: {type: integer, format: int64}}
+        - {name: assessment_id, in: query, schema: {type: integer, format: int64}}
+      responses:
+        '200': {description: Análise sem resposta bruta, content: {application/json: {schema: {$ref: '#/components/schemas/AnalysisEnvelope'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /api/v1/deals/{bitrix_deal_id}/analysis/raw:
+    get:
+      summary: Consulta a análise incluindo raw_response
+      parameters:
+        - {name: bitrix_deal_id, in: path, required: true, schema: {type: integer, format: int64}}
+        - {name: assessment_id, in: query, schema: {type: integer, format: int64}}
+      responses:
+        '200': {description: Análise com resposta bruta, content: {application/json: {schema: {$ref: '#/components/schemas/AnalysisEnvelope'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/Internal'}
